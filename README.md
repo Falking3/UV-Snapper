@@ -11,7 +11,9 @@ The kind of assets that use these workflows are typically hard surface, but the 
  * **Download "uv_snapper.py" from this repo.** Optionally, download the demo scene and atlas texture
 * In Blender, **install the downloaded file** from Preferences/Add-ons -> Install from File
 * In the UV Editor, open the **UV Snapper panel**, select a shell or a group of UVs and hit the **Snap UV to Atlas button** 
+> You can select UVs in any of the four selection modes - as long as you have a whole face selected it will rip your selection into a new shell and snap it. UV Sync mode is also supported.
 
+> The UVs the operator chooses to be the shell corners are the UVs closest to the box corners - if the operator picks the wrong one you can make it clearer by moving the desired corner UVs closer to the box corners
 ## What does it do?
 **Reads a user defined atlas and snaps the current UV selection to the edges of the atlas box that it lies within**. 
 
