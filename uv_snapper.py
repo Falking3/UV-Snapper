@@ -393,7 +393,9 @@ def SaveInitialState(bm, uvlayer): #saves some states that will be changed later
 			if face.select == True:
 				og_selection[2].append(face.index)
 
-	return og_mesh_select_mode, og_uv_seams, og_selection
+	og_uv_select_mode = bpy.context.tool_settings.uv_select_mode
+
+	return og_mesh_select_mode, og_uv_seams, og_selection, og_uv_select_mode
 
 def FindSelectedUVs(bm, uvlayer, context): #validate selected uvs (removes UVs that are not visible but still selected)  
 
@@ -446,6 +448,7 @@ def FindSelectedUVs(bm, uvlayer, context): #validate selected uvs (removes UVs t
 
 def CreateWorkingDuplicate(bm, SelectedUVs, uvlayer, og_uv_seams): #creates the duplicate mesh that we use to do uv operations in using mesh elements
 
+	bpy.context.tool_settings.uv_select_mode = "VERTEX"
 	og_uv_locs = {}		#used later to match up the translated verts with their original coords so we can copy them back at the end
 
 	unselected_faces = []
@@ -918,11 +921,12 @@ def MarchEdges(bm, corners, edge_verts_array,  atlas_u, atlas_v, UVBoundsCentre,
 
 	return bm
 
-def CleanupWorkingDuplicate(old_bm, uvlayer, og_obj, og_uv_locs, og_uv_seams, og_selection, og_mesh_select_mode, og_uv_sync, ): #transfers UV movement back to the original mesh, deletes the duplicate
+def CleanupWorkingDuplicate(old_bm, uvlayer, og_obj, og_uv_locs, og_uv_seams, og_selection, og_mesh_select_mode, og_uv_sync, og_uv_select_mode): #transfers UV movement back to the original mesh, deletes the duplicate
 
 	#create a dictionary to hold the original locs of all the uv loops and their new position.
 	#This is currently done purely by uv pos	    
 	uv_loc_dict = {}
+
 
 	#loop through all verts
 	for vert in old_bm.verts:
@@ -952,10 +956,7 @@ def CleanupWorkingDuplicate(old_bm, uvlayer, og_obj, og_uv_locs, og_uv_seams, og
 	bm = bmesh.from_edit_mesh(me) 
 	uvlayer = bm.loops.layers.uv.verify()
 
-
-	og_uv_select_mode = bpy.context.tool_settings.uv_select_mode
-	if og_uv_select_mode == "EDGE":
-		bpy.context.tool_settings.uv_select_mode = "VERTEX"
+	bpy.context.tool_settings.uv_select_mode = og_uv_select_mode
 
 	#iterate through verts - ideally limit this to the ones we know are selected, but we can't use tagging or anything, so it would have to be some kind of "not in" array which isn't great
 	for vert in bm.verts:
@@ -969,10 +970,7 @@ def CleanupWorkingDuplicate(old_bm, uvlayer, og_obj, og_uv_locs, og_uv_seams, og
 			except:
 				continue
 
-	#if we're in uv edge selection we have to change to vertex to get the selection restored accurately for some reason
-	if og_uv_select_mode == "EDGE":
-		bpy.context.tool_settings.uv_select_mode = "EDGE"
-
+	
 	for edge in bm.edges:
 		if edge.index in og_uv_seams:	#we have to use index here because it kills the original bmesh really early for some reason
 			edge.seam = True
@@ -1197,7 +1195,7 @@ class SnapUVToAtlas (bpy.types.Operator):
 		bm, uvlayer , og_obj, og_uv_sync = SetupBmesh(context) 
 
 		#Saves some states that will be changed later so we can reinstate them at the end
-		og_mesh_select_mode, og_uv_seams, og_selection= SaveInitialState(bm, uvlayer)
+		og_mesh_select_mode, og_uv_seams, og_selection, og_uv_select_mode = SaveInitialState(bm, uvlayer)
 
 
 		#Limits selected UVs to ones that are currently visible 
@@ -1206,7 +1204,6 @@ class SnapUVToAtlas (bpy.types.Operator):
 
 		#Creates a duplicate of the current mesh and makes it into a topological representation of the uv selection
 		bm,  og_uv_locs,   edge_verts_array, edge_uv_array, vert_array, og_edge_verts_locs, is_shell_only_corners = CreateWorkingDuplicate(bm, SelectedUVs, uvlayer, og_uv_seams)
-
 
 		#Find the atlas box that the selected UVs lie within
 		CurrentBox, UVBoundsCentre, UVBounds = FindCurrentBox(bm, vert_array, edge_uv_array, atlas_u, atlas_v) 
@@ -1227,7 +1224,7 @@ class SnapUVToAtlas (bpy.types.Operator):
 			bm = MarchEdges(bm, corners, edge_verts_array, atlas_u, atlas_v, UVBoundsCentre, starting_vert, og_edge_verts_locs, CurrentBox)
 
 
-		og_obj = CleanupWorkingDuplicate(bm, uvlayer, og_obj, og_uv_locs, og_uv_seams, og_selection, og_mesh_select_mode, og_uv_sync)
+		og_obj = CleanupWorkingDuplicate(bm, uvlayer, og_obj, og_uv_locs, og_uv_seams, og_selection, og_mesh_select_mode, og_uv_sync, og_uv_select_mode)
 
 		end = timer()
 		print("Whole program took", end - start, "seconds")
