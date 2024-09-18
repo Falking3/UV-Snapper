@@ -5,7 +5,7 @@ import copy
 import math
 from timeit import default_timer as timer
 
- bpy.types.Scene.atlas = bpy.props.PointerProperty(type=bpy.types.Object)
+bpy.types.Scene.atlas = bpy.props.PointerProperty(type=bpy.types.Object)
 
 
 #Custom data class to hold info about the atlas box that the UV selection is in
