@@ -5,9 +5,7 @@ import copy
 import math
 from timeit import default_timer as timer
 
-bpy.types.Scene.atlas = bpy.props.PointerProperty(type=bpy.types.Object)
-
- 
+ bpy.types.Scene.atlas = bpy.props.PointerProperty(type=bpy.types.Object)
 
 bl_info = {
 	"name" : "UV Snapper",
@@ -61,11 +59,16 @@ class UV_Snapper_UV_PT_Panel(bpy.types.Panel):
 
 		col.operator("uv.snaptoatlas", text = "Snap UV to Atlas")
 		if obj.mode == "EDIT":
-
 			col.enabled = True
+			if context.scene.atlas == None:
+				col.enabled = False
 		else:
 			col.enabled = False
 
+		col = box.column(align = True)
+		
+		if context.scene.atlas == None:
+			col.operator("uv.createexampleatlas", text = "Create Example Atlas")
 		col = box.column(align = True)
 		col.prop_search(context.scene, "atlas", context.scene, "objects", text="Atlas")
 
@@ -295,10 +298,13 @@ def CentreShell(bm, UVBounds, vert_array, CurrentBox, context): #moves the curre
 
 #---STAGES OF EXECUTION----
 
-def ReadAtlas(context): #reads data from the atlas object
+def ReadAtlas(self, context): #reads data from the atlas object
 
+	cancelled = False
 	#define atlas object to draw loops from
-	atlas_mesh = context.scene.atlas.data 
+	atlas_mesh = context.scene.atlas.data
+
+	
 
 	#create a bmesh from the atlas_mesh to grab uvs
 	bm = bmesh.new()
@@ -316,11 +322,15 @@ def ReadAtlas(context): #reads data from the atlas object
 			if loop[uvlayer].uv[1] not in atlas_v_coords:
 				atlas_v_coords.append(loop[uvlayer].uv[1])
 
-	return atlas_u_coords, atlas_v_coords
+	if len(atlas_u_coords) < 4 or len(atlas_v_coords) <4:
+		self.report({"ERROR"}, "Atlas has less than 4 UVs. Please make sure there's at least a square to snap to")
+		cancelled = True
 
-def SetupBmesh(context): #splits off the originally selected uvs on the actual mesh, sets up a bmesh copy of the original for all further operations
+	return atlas_u_coords, atlas_v_coords, cancelled
 
+def SetupBmesh(self,context): #splits off the originally selected uvs on the actual mesh, sets up a bmesh copy of the original for all further operations
 
+	cancelled = False
 	#we need uv sync off immediately, so we save it and toggle here
 	og_uv_sync = bpy.context.tool_settings.use_uv_select_sync
 	bpy.context.tool_settings.use_uv_select_sync = False
@@ -340,6 +350,11 @@ def SetupBmesh(context): #splits off the originally selected uvs on the actual m
 	#valdiate uv selection
 	temp_bm, selected_uv_coords, selected_uv_loops = FindSelectedUVs(temp_bm, temp_uvlayer, context)
 
+	if len(selected_uv_coords) <3:
+		self.report({"ERROR"}, "Please select all the UVs in a face")
+		cancelled = True
+	
+		return 0, 0, og_obj, og_uv_sync, cancelled
 
 	#for all faces with all loops selected, move those loops by a tiny offset to separate them from their stacked siblings
 	for loop in selected_uv_loops:
@@ -362,7 +377,7 @@ def SetupBmesh(context): #splits off the originally selected uvs on the actual m
 	uvlayer = bm.loops.layers.uv.verify()
 	
 
-	return bm, uvlayer, og_obj, og_uv_sync
+	return bm, uvlayer, og_obj, og_uv_sync, cancelled
 
 def SaveInitialState(bm, uvlayer): #saves some states that will be changed later so we can reinstate them at the end
 
@@ -435,7 +450,7 @@ def FindSelectedUVs(bm, uvlayer, context): #validate selected uvs (removes UVs t
 	#all uvs that were in the original selection are now unpinned. Add them to the output array
 	for loop in original_selection:
 		if loop[uvlayer].pin_uv == False: 
-			selected_uv_coords.append(copy.deepcopy(loop[uvlayer].uv))	#deep copy is needed here to prevent interefence further down the line
+			selected_uv_coords.append(copy.deepcopy(loop[uvlayer].uv))	#deep copy is needed here to prevent interference further down the line
 			selected_uv_loops.append(loop)
 			loop[uvlayer].select = True
 			loop.tag = True       			#all valid loops are tagged for the next stage
@@ -1165,6 +1180,52 @@ def SoftSelect(bm, corners, pre_shellscale_corner_locs, UVBounds, vert_array, Cu
 	
 	return bm
 	
+def Validation(self,context):
+
+	cancelled = False
+	#validate selection to single mesh
+	meshes = []
+	for obj in bpy.context.selected_objects:
+		if obj.type == "MESH":
+			meshes.append(obj)
+
+	if len(meshes) > 1:
+		self.report({"ERROR"}, "More than one mesh selected!")
+		cancelled = True
+		return cancelled
+
+	if len(meshes) < 1:
+		self.report({"ERROR"}, "No mesh selected!")
+		cancelled = True
+		return cancelled
+
+	if context.scene.atlas == None:
+		self.report({"ERROR"}, "No atlas mesh selected. Please assign one in the panel in the UV editor")
+		cancelled = True
+		return cancelled
+
+	if context.scene.atlas.type != "MESH":
+		self.report({"ERROR"}, "Atlas object is not a mesh.")
+		cancelled = True
+		return cancelled
+
+	uv_layers = len(context.scene.atlas.data.uv_layers)
+	if uv_layers <1 :
+		self.report({"ERROR"}, "Atlas object has no UVs.")
+		cancelled = True
+		return cancelled
+
+	if meshes[0] == context.scene.atlas:
+		self.report({"ERROR"}, "Selected object is also the atlas. Please select a different object")
+		cancelled = True
+		return cancelled
+
+	if bpy.context.object.mode != 'EDIT':
+		self.report({"ERROR"}, "Please enter edit mode")
+		cancelled = True
+		return cancelled
+
+
 #~~~~~~~~~~The actual operator~~~~~~~~~~~
 
 class SnapUVToAtlas (bpy.types.Operator):
@@ -1178,21 +1239,26 @@ class SnapUVToAtlas (bpy.types.Operator):
 
 		start = timer()
 
-		#validate selection to single mesh
-		meshes = []
-		for obj in bpy.context.selected_objects:
-			if obj.type == "MESH":
-				meshes.append(obj)
 
-		if len(meshes) > 1:
-			self.report({"ERROR"}, "More than one mesh selected!")
+		cancelled = Validation(self,context)
+
+		if cancelled == True:
 			return {'CANCELLED'}
 
 		#read the scene atlas and get it's uv coords as two lists of floats 
-		atlas_u, atlas_v = ReadAtlas(context)
+		atlas_u, atlas_v,cancelled = ReadAtlas(self, context)
+
+
+		if cancelled == True:
+			return {'CANCELLED'}
 
 		#splits off the originally selected uvs on the actual mesh, sets up a bmesh copy of the original for all further operations
-		bm, uvlayer , og_obj, og_uv_sync = SetupBmesh(context) 
+		bm, uvlayer , og_obj, og_uv_sync, cancelled = SetupBmesh(self, context) 
+
+
+		if cancelled == True:
+			return {'CANCELLED'}
+
 
 		#Saves some states that will be changed later so we can reinstate them at the end
 		og_mesh_select_mode, og_uv_seams, og_selection, og_uv_select_mode = SaveInitialState(bm, uvlayer)
@@ -1231,14 +1297,45 @@ class SnapUVToAtlas (bpy.types.Operator):
 
 		return {'FINISHED'}
 
+class CreateExampleAtlas (bpy.types.Operator):
+	bl_idname = "uv.createexampleatlas"
+	bl_label = "Create Example Atlas"
+	bl_options = {"REGISTER", "UNDO"} 
 
+	def execute(self, context):
+
+		me = bpy.data.meshes.new('Atlas_Mesh')
+		obj = bpy.data.objects.new("Example_Atlas", me)
+
+		bm = bmesh.new()   # create an empty BMesh
+
+
+		bm.from_mesh(me)
+		uv_layer = bm.loops.layers.uv.new("UV")
+		bmesh.ops.create_grid(bm, x_segments=4, y_segments=4, size=0.5, calc_uvs = True)
+		for vert in bm.verts:
+		    vert.co.x += 0.5
+		    vert.co.x = pow(vert.co.x, 0.4)
+		    vert.co.y += 0.5
+		    vert.co.y = pow(vert.co.y, 0.4)
+		    for loop in vert.link_loops:
+		        loop[uv_layer].uv[0] = vert.co.x
+		        loop[uv_layer].uv[1] = vert.co.y
+		bm.to_mesh(me)
+
+		scene = bpy.context.scene
+		scene.collection.objects.link(obj)
+		context.scene.atlas = obj
+
+		return {'FINISHED'}
 
 #------Blender Requirements------
 
 CLASSES = [                 #list of all classes
 	UV_Snapper_UV_PT_Panel,
 	UV_Snapper_Settings_UV_PT_Panel,
-	SnapUVToAtlas
+	SnapUVToAtlas,
+	CreateExampleAtlas
 ]
 
 def register():
@@ -1261,28 +1358,3 @@ if __name__ == '__main__':
 
 
 
-#new add atlas operator 
-import bpy
-import bmesh
-
-me = bpy.data.meshes.new('Atlas_Mesh')
-obj = bpy.data.objects.new("Example_Atlas", me)
-
-bm = bmesh.new()   # create an empty BMesh
-
-
-bm.from_mesh(me)
-uv_layer = bm.loops.layers.uv.new("UV")
-bmesh.ops.create_grid(bm, x_segments=4, y_segments=4, size=0.5, calc_uvs = True)
-for vert in bm.verts:
-    vert.co.x += 0.5
-    vert.co.x = pow(vert.co.x, 0.4)
-    vert.co.y += 0.5
-    vert.co.y = pow(vert.co.y, 0.4)
-    for loop in vert.link_loops:
-        loop[uv_layer].uv[0] = vert.co.x
-        loop[uv_layer].uv[1] = vert.co.y
-bm.to_mesh(me)
-
-scene = bpy.context.scene
-scene.collection.objects.link(obj)
