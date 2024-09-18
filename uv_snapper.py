@@ -1261,3 +1261,28 @@ if __name__ == '__main__':
 
 
 
+#new add atlas operator 
+import bpy
+import bmesh
+
+me = bpy.data.meshes.new('Atlas_Mesh')
+obj = bpy.data.objects.new("Example_Atlas", me)
+
+bm = bmesh.new()   # create an empty BMesh
+
+
+bm.from_mesh(me)
+uv_layer = bm.loops.layers.uv.new("UV")
+bmesh.ops.create_grid(bm, x_segments=4, y_segments=4, size=0.5, calc_uvs = True)
+for vert in bm.verts:
+    vert.co.x += 0.5
+    vert.co.x = pow(vert.co.x, 0.4)
+    vert.co.y += 0.5
+    vert.co.y = pow(vert.co.y, 0.4)
+    for loop in vert.link_loops:
+        loop[uv_layer].uv[0] = vert.co.x
+        loop[uv_layer].uv[1] = vert.co.y
+bm.to_mesh(me)
+
+scene = bpy.context.scene
+scene.collection.objects.link(obj)
