@@ -173,7 +173,10 @@ def Lerp(a, b, t):
 	return (a +(b-a)*t) 
 
 def InverseLerp(a,b ,t):
-	return (t-a)/(b-a) 
+	divisor = b-a
+	if divisor == 0:
+		divisor = 0.00001
+	return (t-a)/divisor
 
 def GetSampledBoundsPosition(bound, vert_pos, axis):  # returns a value from the opposite axis provided based on provided bounds 
 
@@ -1159,6 +1162,8 @@ def SoftSelect(bm, corners, pre_shellscale_corner_locs, UVBounds, vert_array, Cu
 
 		if oob_vert != None:	#scalar values required to keep all verts in the atlas box
 			oob_vert_transform = vert_to_axis_transforms[oob_vert][i]
+			if oob_vert_transform == 0:
+				oob_vert_transform = 0.00001
 			padding = 0 #CurrentBox.length/50
 			if highest_bound_direction == 1 :
 				if highest_bound_axis == "X":
