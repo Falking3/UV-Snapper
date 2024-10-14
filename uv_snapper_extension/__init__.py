@@ -1317,6 +1317,8 @@ class CreateExampleAtlas (bpy.types.Operator):
 
 	def execute(self, context):
 
+		no_tex = False
+
 		#check if atlas texture already exists
 		if "T_Atlas.png" in bpy.data.images:
 			print("Atlas image found, skipping import")
@@ -1336,6 +1338,7 @@ class CreateExampleAtlas (bpy.types.Operator):
 						break
 			except:
 				self.report({"ERROR"}, "Could not import atlas texture")
+				no_tex = True
 
 		#change image editor to use atlas image
 		for area in bpy.context.screen.areas:
@@ -1366,17 +1369,18 @@ class CreateExampleAtlas (bpy.types.Operator):
 		context.scene.atlas = obj
 
 		#set up atlas material
-		new_mat = bpy.data.materials.new("Example_Atlas_Material")
-		obj.data.materials.append(new_mat)
-		new_mat.use_nodes = True
-		image_node = new_mat.node_tree.nodes.new('ShaderNodeTexImage')
-		for node in new_mat.node_tree.nodes:
-			if node.type == "OUTPUT_MATERIAL":
-				output_node = node
-		image_node.image = atlas_image
-		links = new_mat.node_tree.links
-		links.new(image_node.outputs[0], output_node.inputs[0])
-		
+		if no_tex == False:
+			new_mat = bpy.data.materials.new("Example_Atlas_Material")
+			obj.data.materials.append(new_mat)
+			new_mat.use_nodes = True
+			image_node = new_mat.node_tree.nodes.new('ShaderNodeTexImage')
+			for node in new_mat.node_tree.nodes:
+				if node.type == "OUTPUT_MATERIAL":
+					output_node = node
+			image_node.image = atlas_image
+			links = new_mat.node_tree.links
+			links.new(image_node.outputs[0], output_node.inputs[0])
+			
 		return {'FINISHED'}
 
 #------Blender Requirements------
