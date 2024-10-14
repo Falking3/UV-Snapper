@@ -587,10 +587,10 @@ def FindCurrentBox(bm, vert_array, edge_uv_array, atlas_u, atlas_v, self): #find
 	boxbounds = []
 
 	try:
-	boxbounds.append(FindClosestValuefromArray(UVBounds[0], atlas_u, -1))
-	boxbounds.append(FindClosestValuefromArray(UVBounds[1], atlas_v, 1))
-	boxbounds.append(FindClosestValuefromArray(UVBounds[2], atlas_u, 1))
-	boxbounds.append(FindClosestValuefromArray(UVBounds[3], atlas_v, -1))
+		boxbounds.append(FindClosestValuefromArray(UVBounds[0], atlas_u, -1))
+		boxbounds.append(FindClosestValuefromArray(UVBounds[1], atlas_v, 1))
+		boxbounds.append(FindClosestValuefromArray(UVBounds[2], atlas_u, 1))
+		boxbounds.append(FindClosestValuefromArray(UVBounds[3], atlas_v, -1))
 	except:
 		if UVBoundsCentre[0] > 1 or UVBoundsCentre[0] <0 or  UVBoundsCentre[1] > 1 or UVBoundsCentre[1] <0:
 			self.report({"ERROR"}, "Selected UVs centre point is outside the atlas UVs. Check the UVs on the atlas object. Selection is outside 0-1 space which may be the cause")
