@@ -3,7 +3,9 @@ import bmesh
 import numpy
 import copy
 import math
+import re
 from timeit import default_timer as timer
+import addon_utils
 
 bpy.types.Scene.atlas = bpy.props.PointerProperty(type=bpy.types.Object)
 
@@ -48,12 +50,13 @@ class UV_Snapper_UV_PT_Panel(bpy.types.Panel):
 		obj = bpy.context.active_object
 
 		col.operator("uv.snaptoatlas", text = "Snap UV to Atlas")
-		if obj.mode == "EDIT":
-			col.enabled = True
-			if context.scene.atlas == None:
+		if len(bpy.context.selected_objects) >0:
+			if obj.mode == "EDIT":
+				col.enabled = True
+				if context.scene.atlas == None:
+					col.enabled = False
+			else:
 				col.enabled = False
-		else:
-			col.enabled = False
 
 		col = box.column(align = True)
 		
@@ -147,8 +150,13 @@ def FindClosestValuefromArray(single_value, values_array, rounding): #same as Fi
 			dist = dist * -1
 			if dist >= 0:
 				value_dist_array.append((value, dist))
-
-	closest_value = min(value_dist_array, key=lambda i: i[1])[0]
+	try:
+		closest_value = min(value_dist_array, key=lambda i: i[1])[0]#
+	except:
+		if rounding == -1:
+			closest_value = 0
+		else:
+			closest_value = 1
 
 	return closest_value
 
@@ -344,7 +352,7 @@ def SetupBmesh(self,context): #splits off the originally selected uvs on the act
 		self.report({"ERROR"}, "Please select all the UVs in a face")
 		cancelled = True
 	
-		return 0, 0, og_obj, og_uv_sync, cancelled
+		return 0, 0, og_obj, og_uv_sync, cancelled, 0
 
 	#for all faces with all loops selected, move those loops by a tiny offset to separate them from their stacked siblings
 	for loop in selected_uv_loops:
@@ -361,13 +369,13 @@ def SetupBmesh(self,context): #splits off the originally selected uvs on the act
 	bpy.ops.object.duplicate()                #using the duplicate operator because it automatically selects the duplicate
 	bpy.ops.object.editmode_toggle()
 	bpy.context.view_layer.objects.active.name = "uvsnapper_temp"
+	dup_obj = bpy.context.active_object
 
 	#set up the duplicate as a bmesh
 	bm = bmesh.from_edit_mesh(bpy.context.active_object.data)						
 	uvlayer = bm.loops.layers.uv.verify()
 	
-
-	return bm, uvlayer, og_obj, og_uv_sync, cancelled
+	return bm, uvlayer, og_obj, og_uv_sync, cancelled, dup_obj
 
 def SaveInitialState(bm, uvlayer): #saves some states that will be changed later so we can reinstate them at the end
 
@@ -557,7 +565,7 @@ def CreateWorkingDuplicate(bm, SelectedUVs, uvlayer, og_uv_seams): #creates the 
 
 	return bm, og_uv_locs,edge_verts_array, edge_uv_array, vert_array, og_edge_verts_locs, is_shell_only_corners
 
-def FindCurrentBox(bm, vert_array, edge_uv_array, atlas_u, atlas_v): #finds the box that the selected uvs lie within
+def FindCurrentBox(bm, vert_array, edge_uv_array, atlas_u, atlas_v, self): #finds the box that the selected uvs lie within
 
 
 	#Find the bounding box of the verts
@@ -578,14 +586,24 @@ def FindCurrentBox(bm, vert_array, edge_uv_array, atlas_u, atlas_v): #finds the 
 
 	boxbounds = []
 
+	try:
 	boxbounds.append(FindClosestValuefromArray(UVBounds[0], atlas_u, -1))
 	boxbounds.append(FindClosestValuefromArray(UVBounds[1], atlas_v, 1))
 	boxbounds.append(FindClosestValuefromArray(UVBounds[2], atlas_u, 1))
 	boxbounds.append(FindClosestValuefromArray(UVBounds[3], atlas_v, -1))
+	except:
+		if UVBoundsCentre[0] > 1 or UVBoundsCentre[0] <0 or  UVBoundsCentre[1] > 1 or UVBoundsCentre[1] <0:
+			self.report({"ERROR"}, "Selected UVs centre point is outside the atlas UVs. Check the UVs on the atlas object. Selection is outside 0-1 space which may be the cause")
+			cancelled = True
+			return 0,0,0,cancelled
+		else:
+			self.report({"ERROR"}, "Selected UVs centre point is outside the atlas UVs. Check the UVs on the atlas object")
+			cancelled = True
+			return 0,0,0,cancelled	
 
 	CurrentBox = Box(boxbounds) #custom data type, calculates a few useful pieces of data
-
-	return CurrentBox, UVBoundsCentre, UVBounds 
+	cancelled = False
+	return CurrentBox, UVBoundsCentre, UVBounds, cancelled
 
 def FindAndSnapCorners(bm, uvlayer, vert_array, CurrentBox, outline_verts, UVBounds, context):
 
@@ -1243,7 +1261,7 @@ class SnapUVToAtlas (bpy.types.Operator):
 			return {'CANCELLED'}
 
 		#splits off the originally selected uvs on the actual mesh, sets up a bmesh copy of the original for all further operations
-		bm, uvlayer , og_obj, og_uv_sync, cancelled = SetupBmesh(self, context) 
+		bm, uvlayer , og_obj, og_uv_sync, cancelled, dup_obj = SetupBmesh(self, context) 
 
 
 		if cancelled == True:
@@ -1262,8 +1280,13 @@ class SnapUVToAtlas (bpy.types.Operator):
 		bm,  og_uv_locs,   edge_verts_array, edge_uv_array, vert_array, og_edge_verts_locs, is_shell_only_corners = CreateWorkingDuplicate(bm, SelectedUVs, uvlayer, og_uv_seams)
 
 		#Find the atlas box that the selected UVs lie within
-		CurrentBox, UVBoundsCentre, UVBounds = FindCurrentBox(bm, vert_array, edge_uv_array, atlas_u, atlas_v) 
+		CurrentBox, UVBoundsCentre, UVBounds, cancelled = FindCurrentBox(bm, vert_array, edge_uv_array, atlas_u, atlas_v,self) 
 
+
+		if cancelled == True:
+			bpy.data.objects.remove(dup_obj, do_unlink = True)
+			bpy.context.view_layer.objects.active = og_obj
+			return {'CANCELLED'}
 
 		#Finds corners by looking for closest value to box corners. Snaps them to the location of those corners. 
 		vert_array, corners, pre_shellscale_corner_locs, start_corner_ind, UVBounds, pre_correction_corner_locs, vert_og_locs_dict, pre_snap_corners_locs = FindAndSnapCorners(bm, uvlayer, vert_array, CurrentBox, edge_verts_array, UVBounds, context)
@@ -1294,6 +1317,31 @@ class CreateExampleAtlas (bpy.types.Operator):
 
 	def execute(self, context):
 
+		#check if atlas texture already exists
+		if "T_Atlas.png" in bpy.data.images:
+			print("Atlas image found, skipping import")
+			atlas_image = bpy.data.images["T_Atlas.png"]
+		else:
+			try:
+				#load example atlas texture
+				for mod in addon_utils.modules():
+					if mod.bl_info['name'] == "UV Snapper":
+						filepath = mod.__file__
+						filepath = re.findall(r'.*\\', filepath)
+						img_filepath = ""
+						for char in filepath:
+							img_filepath += char
+						img_filepath += "T_Atlas.png"
+						atlas_image = bpy.data.images.load(img_filepath)
+						break
+			except:
+				self.report({"ERROR"}, "Could not import atlas texture")
+
+		#change image editor to use atlas image
+		for area in bpy.context.screen.areas:
+			if area.type == "IMAGE_EDITOR":
+				area.spaces.active.image = atlas_image
+
 		me = bpy.data.meshes.new('Atlas_Mesh')
 		obj = bpy.data.objects.new("Example_Atlas", me)
 
@@ -1317,6 +1365,18 @@ class CreateExampleAtlas (bpy.types.Operator):
 		scene.collection.objects.link(obj)
 		context.scene.atlas = obj
 
+		#set up atlas material
+		new_mat = bpy.data.materials.new("Example_Atlas_Material")
+		obj.data.materials.append(new_mat)
+		new_mat.use_nodes = True
+		image_node = new_mat.node_tree.nodes.new('ShaderNodeTexImage')
+		for node in new_mat.node_tree.nodes:
+			if node.type == "OUTPUT_MATERIAL":
+				output_node = node
+		image_node.image = atlas_image
+		links = new_mat.node_tree.links
+		links.new(image_node.outputs[0], output_node.inputs[0])
+		
 		return {'FINISHED'}
 
 #------Blender Requirements------
